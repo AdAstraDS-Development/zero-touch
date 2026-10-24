@@ -1,0 +1,83 @@
+name: Deploy issue triage workflow
+
+on:
+#  push:
+#    branches:
+#      - main
+#    paths:
+#      - "agents/**"
+#      - "workflow/**"
+#      - "tools/**"
+#      - "Directory.*.props"
+#      - "azure-zero-touch.slnx"
+#      - ".github/workflows/deploy-agent.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  WORKFLOW_PROJECT_DIR: ./workflow/IssueTriageWorkflow
+  AZD_ENV_NAME: sandbox
+
+jobs:
+  deploy:
+    name: Build and deploy workflow
+    runs-on: ubuntu-latest
+    environment: sandbox
+    env:
+      AZD_ENV_NAME: sandbox
+      AZURE_LOCATION: swedencentral
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+            dotnet-version: '10.0.x'
+
+      - name: Build all agents, workflows and tools
+        run: dotnet build azure-zero-touch.slnx
+
+      - name: Set up Azure Developer CLI
+        uses: Azure/setup-azd@v2
+
+      - name: Install azd Foundry extension
+        run: azd ext install microsoft.foundry
+
+      - name: Sign in to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.ARM_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Configure azd authentication
+        run: |
+          azd config set auth.useAzCliAuth true
+          azd config set defaults.subscription "${{ vars.AZURE_SUBSCRIPTION_ID }}"
+
+      - name: Configure deployment environment
+        working-directory: ${{ env.WORKFLOW_PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+
+          # Select or create the environment for this hosted workflow project.
+          azd env select "$AZD_ENV_NAME" || azd env new "$AZD_ENV_NAME" --no-prompt
+
+          azd env set AZURE_SUBSCRIPTION_ID "${{ vars.AZURE_SUBSCRIPTION_ID }}"
+          azd env set AZURE_TENANT_ID "${{ vars.ARM_TENANT_ID }}"
+          azd env set AZURE_LOCATION "${{ vars.AZURE_LOCATION }}"
+          azd env set FOUNDRY_PROJECT_ENDPOINT "${{ vars.FOUNDRY_PROJECT_ENDPOINT }}"
+          azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME "${{ vars.FOUNDRY_MODEL_DEPLOYMENT_NAME }}"
+          azd env set AZURE_AI_PROJECT_ID "${{ vars.AZURE_AI_PROJECT_ID }}"
+          azd env set AZURE_KEY_VAULT_URI "https://${{ vars.AZURE_KEY_VAULT_NAME }}.vault.azure.net/"
+          azd env set GITHUB_APP_PRIVATE_KEY_SECRET_NAME "${{ vars.GHE_APP_PRIVATE_KEY_SECRET_NAME}}"
+          azd env set GITHUB_APP_ID "${{ vars.GHE_APP_ID }}"
+          azd env set GITHUB_API_URL "${{ vars.GHE_API_URL }}"
+
+      - name: Deploy workflow
+        working-directory: ${{ env.WORKFLOW_PROJECT_DIR }}
+        run: azd deploy --no-prompt

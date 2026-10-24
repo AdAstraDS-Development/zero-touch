@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Reusable agent definition (instructions, output schema, factory). No hosting and no side
+    effects: workflows under /workflow reference this project and decide what to do with the result.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>IssueTriageAgent</RootNamespace>
+    <AssemblyName>IssueTriageAgent</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Agents.AI.Foundry" />
+    <!-- Preserve reasoning item IDs when replaying tool results with store=false. -->
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
+    <PackageReference Include="Azure.AI.Projects" />
+  </ItemGroup>
+
+</Project>

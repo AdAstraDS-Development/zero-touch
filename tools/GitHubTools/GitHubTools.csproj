@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Reusable GitHub integration (GitHub App authentication, issue read, triage comment and labels, read-only source code access). -->
+
+  <ItemGroup>
+    <PackageReference Include="Octokit" />
+  </ItemGroup>
+
+</Project>

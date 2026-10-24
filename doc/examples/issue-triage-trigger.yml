@@ -1,0 +1,42 @@
+# Copy to .github/workflows/issue-triage.yml in a repository to triage.
+#
+# Triages new issues, and triages them again when someone comments or edits the issue,
+# until the triage marks the issue as clear (label triage/ready). After that, comments
+# no longer trigger anything.
+#
+# Requires in this repository (or its organization):
+# - variables FOUNDRY_PROJECT_ENDPOINT, AZURE_CLIENT_ID, ARM_TENANT_ID, AZURE_SUBSCRIPTION_ID
+# - a federated credential for this repository on the Azure identity (see doc/README.md)
+# - the triage GitHub App installed on this repository
+
+name: Issue triage
+
+on:
+  issues:
+    types: [opened, reopened, edited]
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: issue-triage-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    # Skip pull requests, closed issues and issues that are already clear. Skip comments by bots,
+    # including the triage comment itself, so the triage does not trigger itself.
+    if: >-
+      !github.event.issue.pull_request &&
+      github.event.issue.state == 'open' &&
+      !contains(github.event.issue.labels.*.name, 'triage/ready') &&
+      (github.event_name == 'issues' || github.event.comment.user.type != 'Bot')
+    uses: <org>/azure-zero-touch/.github/workflows/issue-triage.yml@main
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      issue-url: ${{ github.event.issue.html_url }}
+      foundry-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+      azure-client-id: ${{ vars.AZURE_CLIENT_ID }}
+      azure-tenant-id: ${{ vars.ARM_TENANT_ID }}
+      azure-subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}

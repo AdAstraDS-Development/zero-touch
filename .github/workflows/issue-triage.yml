@@ -1,0 +1,107 @@
+name: Triage issue
+
+# Runs the hosted issue triage workflow for one issue. Called from the repositories to triage
+# (see doc/examples/issue-triage-trigger.yml) on new issues and comments, or started manually.
+# The comment and labels are written by the GitHub App inside the hosted workflow, so this job
+# only needs an Azure token to call the agent.
+
+on:
+  workflow_call:
+    inputs:
+      issue-url:
+        description: URL of the issue to triage
+        type: string
+        required: true
+      foundry-project-endpoint:
+        description: Foundry project endpoint (defaults to the FOUNDRY_PROJECT_ENDPOINT variable)
+        type: string
+        required: false
+      agent-name:
+        description: Name of the hosted agent
+        type: string
+        required: false
+        default: issue-triage
+      azure-client-id:
+        description: Client ID for the Azure OIDC sign-in (defaults to the AZURE_CLIENT_ID variable)
+        type: string
+        required: false
+      azure-tenant-id:
+        description: Tenant ID for the Azure OIDC sign-in (defaults to the ARM_TENANT_ID variable)
+        type: string
+        required: false
+      azure-subscription-id:
+        description: Subscription ID for the Azure OIDC sign-in (defaults to the AZURE_SUBSCRIPTION_ID variable)
+        type: string
+        required: false
+  workflow_dispatch:
+    inputs:
+      issue-url:
+        description: URL of the issue to triage
+        type: string
+        required: true
+      agent-name:
+        description: Name of the hosted agent
+        type: string
+        required: false
+        default: issue-triage
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  triage:
+    name: Triage ${{ inputs.issue-url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ISSUE_URL: ${{ inputs.issue-url }}
+      AGENT_NAME: ${{ inputs.agent-name || 'issue-triage' }}
+      FOUNDRY_PROJECT_ENDPOINT: ${{ inputs.foundry-project-endpoint || vars.FOUNDRY_PROJECT_ENDPOINT }}
+    steps:
+      - name: Sign in to Azure
+        uses: azure/login@v3
+        with:
+          client-id: ${{ inputs.azure-client-id || vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ inputs.azure-tenant-id || vars.ARM_TENANT_ID }}
+          subscription-id: ${{ inputs.azure-subscription-id || vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Invoke the triage agent
+        run: |
+          set -euo pipefail
+
+          if [ -z "$FOUNDRY_PROJECT_ENDPOINT" ]; then
+            echo "::error::FOUNDRY_PROJECT_ENDPOINT is not set."
+            exit 1
+          fi
+
+          token=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
+          echo "::add-mask::$token"
+
+          # Only the issue URL is sent; the workflow reads the issue itself through the GitHub App.
+          body=$(jq -n --arg input "Triage $ISSUE_URL" '{input: $input, stream: false}')
+          url="${FOUNDRY_PROJECT_ENDPOINT%/}/agents/$AGENT_NAME/endpoint/protocols/openai/responses?api-version=v1"
+
+          status=$(curl -sS --max-time 600 -o response.json -w '%{http_code}' -X POST "$url" \
+            -H "Authorization: Bearer $token" \
+            -H "Content-Type: application/json" \
+            -d "$body")
+
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "::error::The agent returned HTTP $status."
+            cat response.json
+            exit 1
+          fi
+
+          output=$(jq -r '[.output[]? | select(.type == "message") | .content[]? | select(.type == "output_text") | .text] | join("\n\n")' response.json)
+          echo "$output"
+          {
+            echo "### Issue triage: $ISSUE_URL"
+            echo
+            echo "$output"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$(jq -r '.status // "completed"' response.json)" != "completed" ]; then
+            echo "::error::The agent response did not complete."
+            exit 1
+          fi

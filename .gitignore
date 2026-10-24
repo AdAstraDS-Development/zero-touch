@@ -1,0 +1,21 @@
+# Build output
+**/publish/
+**/bin/
+**/obj/
+
+# Local development settings
+.env
+.env.*
+!.env.example
+
+# Secrets and certificates
+*.pem
+
+# Azure and IDE files
+.azure/
+.vs/
+*.user
+*.suo
+
+# macOS
+.DS_Store
